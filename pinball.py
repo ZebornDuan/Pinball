@@ -7,6 +7,69 @@ from scapy.utils import PcapReader
 BLACK_IP = ['192.168.1.1', '0.0.0.0', '255.255.255.255']
 TCounter = namedtuple('TCounter', ['start_time', 'counter'])
 
+class SignaturePinball(object):
+    def __init__(self):
+        self._range_label_count = 0
+        self._range_map = {}
+        self._packet_label_map = {}
+
+    def from_no_range_signature(self, s):
+        self._packet_label_map = s
+        return self
+
+    def from_distribution(self, distribution, range_map):
+        self._packet_label_map = distribution
+        self._range_map = range_map
+        self._range_label_count = len(set(range_map.values()))
+        return self
+
+    def add_length_term(self, label, p):
+        self._packet_label_map[label] = p
+
+    def add_range_term(self, label, p):
+        self._range_label_count += 1
+        range_label = 'r' + str(self._range_label_count)
+        for packet_label in label:
+            self._range_map[packet_label] = range_label
+        self._packet_label_map[range_label] = p
+
+    def get(self, key, default=None):
+        return self._packet_label_map.get(self._range_map.get(key, key), default)
+
+    def __getitem__(self, key):
+        return self._packet_label_map[self._range_map.get(key, key)]
+
+    def __contains__(self, item):
+        return self._range_map.get(item, item) in self._packet_label_map
+
+    def __repr__(self):
+        return self._packet_label_map.__repr__()
+
+    def keys(self):
+        return self._packet_label_map.keys()
+
+    def packet_keys(self):
+        return list(self._packet_label_map.keys()) + list(self._range_map.keys())
+
+    def values(self):
+        return self._packet_label_map.values()
+
+    def items(self):
+        return self._packet_label_map.items()
+
+    def get_distribution_from_counter(self, counter):
+        total_packet_count = sum(counter.values())
+        d = {k: 0 for k in self.keys()}
+        if total_packet_count != 0:
+            for packet_label, n in counter.items():
+                k = self._range_map.get(packet_label, packet_label)
+                if k in self._packet_label_map:
+                    d[k] += n
+            for k in d.keys():
+                d[k] /= total_packet_count
+        return SignaturePinball().from_distribution(d, self._range_map)
+
+
 class Pinball(object):
     def __init__(self, timezone_offset):
         self.interval = 10
@@ -142,6 +205,8 @@ class Pinball(object):
                 [packet_counter['odd'][device_ip][l] for l in high_frequency_packets['odd']])
             for l in high_frequency_packets['odd']:
                 off_event_signature[l] = packet_counter['odd'][device_ip][l] / off_packet_sum     
+        on_event_signature = SignaturePinball().from_no_range_signature(on_event_signature)
+        off_event_signature = SignaturePinball().from_no_range_signature(off_event_signature)
         return on_event_signature, off_event_signature
 
     def extract_event_signatures(self, pcap_file, timestamp_file, device_ip):
@@ -168,7 +233,7 @@ class Pinball(object):
         return on_event_signature, off_event_signature
 
     def validate_signature(self, pcapfile, on_event_signature, off_event_signature):
-        ip_queue_map, ip_temperary_counter_map, ip_result_map = {}, {}, {}
+        ip_queue_map, ip_temperary_counter_map, ip_result_map, ip_match_map = {}, {}, {}, {}
         current_time, match, last_match_time = 0, 0, 0
         traffic_trace = PcapReader(pcapfile)
         for packet in traffic_trace:
@@ -195,27 +260,25 @@ class Pinball(object):
                             ip_result_map[ip]['X'].append(ip_queue_map[ip][0].start_time)
                             d1, d2 = {}, {}
                             for c in ip_queue_map[ip]:
-                                for packet_label in on_event_signature.keys():
+                                for packet_label in on_event_signature.packet_keys():
                                     d1[packet_label] = d1.get(packet_label, 0) \
                                         + c.counter.get(packet_label, 0)
-                                for packet_label in off_event_signature.keys():
+                                for packet_label in off_event_signature.packet_keys():
                                     d2[packet_label] = d2.get(packet_label, 0) \
                                         + c.counter.get(packet_label, 0)
-                            d1_total, d2_total = sum(d1.values()), sum(d2.values())
-                            if d1_total:
-                                for k in d1.keys():
-                                    d1[k] /= d1_total
-                            if d2_total:
-                                for k in d2.keys():
-                                    d2[k] /= d2_total
+                            d1 = on_event_signature.get_distribution_from_counter(d1)
+                            d2 = off_event_signature.get_distribution_from_counter(d2)
                             y1_1, y1_2, y1_3 = self.calculate_all_metrics(on_event_signature, d1)
                             y2_1, y2_2, y2_3 = self.calculate_all_metrics(off_event_signature, d2)
-                            if y1_1 < 0.15 and y1_2 < 1:
-                                if int(t) - last_match_time > self.interval:
-                                    print(ip)
-                                    match += 1
-                                    last_match_time = int(t)
-                                # print(ip, y1_1, y1_2, y1_3)
+                            if (y2_1 < 0.25 and y2_2 < 2) or (y1_1 < 0.25 and y1_2 < 2):
+                                mt = int(t)
+                                if ip in ip_match_map:
+                                    if mt - ip_match_map[ip]['last_match_time'] > self.interval:
+                                        ip_match_map[ip]['times'] += 1
+                                        print(ip_match_map[ip]['times'], mt, y1_1, y1_2, y2_1, y2_2)
+                                    ip_match_map[ip]['last_match_time'] = mt
+                                else:
+                                    ip_match_map[ip] = {'times': 1, 'last_match_time': mt}
                             ip_result_map[ip]['Y1_1'].append(y1_1)
                             ip_result_map[ip]['Y1_2'].append(y1_2)
                             ip_result_map[ip]['Y1_3'].append(y1_3)
@@ -236,17 +299,21 @@ class Pinball(object):
                             ip_temperary_counter_map[dip] = {}
                         ip_temperary_counter_map[dip][(l, self.DIRECTION_IN)] = \
                             ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
-        print(match)                    
+        return ip_match_map                    
 
 if __name__ == '__main__':
     pinball = Pinball(16)
+    # pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/wlan1/st-plug.wlan1.local.pcap'
+    # tsfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/timestamps/st-plug-nov-12-2018.timestamps'
+    # v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/st-plug/wlan1/st-plug.wlan1.detection.pcap'
     pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/wlan1/dlink-plug.wlan1.local.pcap'
     tsfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/timestamps/dlink-plug-nov-7-2018.timestamps'
     v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/dlink-plug/wlan1/dlink-plug.wlan1.detection.pcap'
     # on_s, off_s = pinball.extract_event_signatures(pcapfile, tsfile, '192.168.1.199')
     import pickle
+    # f = open('st-plug.pkl', 'rb')
     f = open('d-link-plug.pkl', 'rb')
     # pickle.dump((on_s, off_s), f)
     on_s, off_s = pickle.load(f)
     f.close()
-    pinball.validate_signature(v_pcapfile, on_s, off_s)
+    print(pinball.validate_signature(v_pcapfile, on_s, off_s))
