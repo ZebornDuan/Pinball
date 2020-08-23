@@ -9,7 +9,6 @@ TCounter = namedtuple('TCounter', ['start_time', 'counter'])
 
 class SignaturePinball(object):
     def __init__(self):
-        self._range_label_count = 0
         self._range_map = {}
         self._packet_label_map = {}
 
@@ -20,15 +19,13 @@ class SignaturePinball(object):
     def from_distribution(self, distribution, range_map):
         self._packet_label_map = distribution
         self._range_map = range_map
-        self._range_label_count = len(set(range_map.values()))
         return self
 
     def add_length_term(self, label, p):
         self._packet_label_map[label] = p
 
     def add_range_term(self, label, p):
-        self._range_label_count += 1
-        range_label = 'r' + str(self._range_label_count)
+        range_label = '[' + str(label[0]) + '-' + str(label[-1]) + ']'
         for packet_label in label:
             self._range_map[packet_label] = range_label
         self._packet_label_map[range_label] = p
@@ -77,7 +74,8 @@ class Pinball(object):
         self.DIRECTION_IN = 0x00
         self.DIRECTION_OUT = 0x01
         self.event_trigger_times = 50
-        self.occurence_low_bound = 45
+        self.occurrence_low_bound = 45
+        self.occurrence_up_bound = 55
 
     @staticmethod
     def calculate_KL_divergence(d1, d2):
@@ -86,6 +84,8 @@ class Pinball(object):
         for x, p in d1.items():
             q = d2[x] if d2.get(x, 0) else epsilon
             e += p * math.log(p, 2) - p * math.log(q, 2)
+        if e < epsilon:
+            e = 0.0
         return e
 
     @staticmethod
@@ -186,28 +186,38 @@ class Pinball(object):
                             break
         return overall_counter
 
-    def _get_exact_length_value_signature(self, packet_counter, packet_occurrence, device_ip):
-        high_frequency_packets = {'odd': set(), 'even': set()}
-        on_event_signature, off_event_signature = {}, {}
-        if device_ip in packet_occurrence['even']:
-            for label, occurence in packet_occurrence['even'][device_ip].items():
-                if occurence >= self.occurence_low_bound:
-                    high_frequency_packets['even'].add(label)
-            on_packet_sum = sum(\
-                [packet_counter['even'][device_ip][l] for l in high_frequency_packets['even']])
-            for l in high_frequency_packets['even']:
-                on_event_signature[l] = packet_counter['even'][device_ip][l] / on_packet_sum
-        if device_ip in packet_occurrence['odd']:
-            for label, occurence in packet_occurrence['odd'][device_ip].items():
-                if occurence >= self.occurence_low_bound:
-                    high_frequency_packets['odd'].add(label)
-            off_packet_sum = sum(\
-                [packet_counter['odd'][device_ip][l] for l in high_frequency_packets['odd']])
-            for l in high_frequency_packets['odd']:
-                off_event_signature[l] = packet_counter['odd'][device_ip][l] / off_packet_sum     
-        on_event_signature = SignaturePinball().from_no_range_signature(on_event_signature)
-        off_event_signature = SignaturePinball().from_no_range_signature(off_event_signature)
-        return on_event_signature, off_event_signature
+    def _get_signature(self, packet_counter, packet_occurrence, device_ip):
+        high_frequency_packets, event_signature = set(), {}
+        if device_ip not in packet_occurrence:
+            return None
+        for label, occurrence in packet_occurrence[device_ip].items():
+            if self.occurrence_low_bound <= occurrence <= self.occurrence_up_bound:
+                high_frequency_packets.add(label)
+        for l in high_frequency_packets:
+            packet_occurrence[device_ip].pop(l)
+        range_label_occurrence_sum = 0
+        all_packet_labels = sorted(list(packet_occurrence[device_ip].keys()))
+        i, r, range_lables = 1, [all_packet_labels[0]], []
+        while i < len(all_packet_labels):
+            if all_packet_labels[i][1] == all_packet_labels[i - 1][1] and \
+                all_packet_labels[i][0] - all_packet_labels[i - 1][0] <= 1:
+                r.append(all_packet_labels[i])
+            else:
+                occurrence_sum = sum([packet_occurrence[device_ip][pl] for pl in r])
+                if self.occurrence_low_bound <= occurrence_sum <= self.occurrence_up_bound:
+                    range_label_occurrence_sum += occurrence_sum
+                    range_lables.append((r, occurrence_sum))
+                r = [all_packet_labels[i]]
+            i += 1
+        packet_sum = sum([packet_counter[device_ip][l] for l in high_frequency_packets])
+        packet_sum += range_label_occurrence_sum
+        for l in high_frequency_packets:
+            event_signature[l] = packet_counter[device_ip][l] / packet_sum
+        event_signature = SignaturePinball().from_no_range_signature(event_signature)
+        for rl, occurrence in range_lables:
+            p = occurrence_sum / packet_sum
+            event_signature.add_range_term(rl, p)
+        return event_signature
 
     def extract_event_signatures(self, pcap_file, timestamp_file, device_ip):
         packet_counter = {'even': {}, 'odd': {}}
@@ -227,8 +237,10 @@ class Pinball(object):
                 for packet_label in c.keys():
                     packet_occurrence[k][local_ip][packet_label] = packet_occurrence[k][\
                         local_ip].get(packet_label, 0) + 1
-        on_event_signature, off_event_signature = \
-            self._get_exact_length_value_signature(packet_counter, packet_occurrence, device_ip)
+        on_event_signature = \
+            self._get_signature(packet_counter['even'], packet_occurrence['even'], device_ip)
+        off_event_signature = \
+            self._get_signature(packet_counter['odd'], packet_occurrence['odd'], device_ip)
         print(on_event_signature, off_event_signature)
         return on_event_signature, off_event_signature
 
@@ -270,12 +282,12 @@ class Pinball(object):
                             d2 = off_event_signature.get_distribution_from_counter(d2)
                             y1_1, y1_2, y1_3 = self.calculate_all_metrics(on_event_signature, d1)
                             y2_1, y2_2, y2_3 = self.calculate_all_metrics(off_event_signature, d2)
-                            if (y2_1 < 0.25 and y2_2 < 2) or (y1_1 < 0.25 and y1_2 < 2):
+                            if (y2_1 < 0.25 and y2_2 < 1.4 and y2_3 < 0.15) or (y1_1 < 0.25 and y1_2 < 1.4 and y1_3 < 0.15):
                                 mt = int(t)
                                 if ip in ip_match_map:
                                     if mt - ip_match_map[ip]['last_match_time'] > self.interval:
                                         ip_match_map[ip]['times'] += 1
-                                        print(ip_match_map[ip]['times'], mt, y1_1, y1_2, y2_1, y2_2)
+                                        print(ip_match_map[ip]['times'], mt, y1_1, y1_2, y1_3, y2_1, y2_2, y2_3)
                                     ip_match_map[ip]['last_match_time'] = mt
                                 else:
                                     ip_match_map[ip] = {'times': 1, 'last_match_time': mt}
@@ -309,11 +321,17 @@ if __name__ == '__main__':
     pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/wlan1/dlink-plug.wlan1.local.pcap'
     tsfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/timestamps/dlink-plug-nov-7-2018.timestamps'
     v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/dlink-plug/wlan1/dlink-plug.wlan1.detection.pcap'
-    # on_s, off_s = pinball.extract_event_signatures(pcapfile, tsfile, '192.168.1.199')
+    pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/nest-thermostat/wlan1/nest-thermostat.wlan1.local.pcap'
+    tsfile = './PingPong/evaluation-datasets/local-phone/standalone/nest-thermostat/timestamps/nest-thermostat-nov-15-2018.timestamps'
+    v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/nest-thermostat/wlan1/nest-thermostat.wlan1.detection.pcap'
+
+    on_s, off_s = pinball.extract_event_signatures(pcapfile, tsfile, '192.168.1.246')
     import pickle
     # f = open('st-plug.pkl', 'rb')
-    f = open('d-link-plug.pkl', 'rb')
-    # pickle.dump((on_s, off_s), f)
-    on_s, off_s = pickle.load(f)
+    # f = open('d-link-plug.pkl', 'rb')
+    f = open('nest-thermostat.pkl', 'wb')
+
+    pickle.dump((on_s, off_s), f)
+    # on_s, off_s = pickle.load(f)
     f.close()
     print(pinball.validate_signature(v_pcapfile, on_s, off_s))
