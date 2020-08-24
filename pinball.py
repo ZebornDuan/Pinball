@@ -1,10 +1,10 @@
+import arrow
 import datetime
 import math
 import scapy.all as scapy
 from collections import deque, namedtuple
 from scapy.utils import PcapReader
 
-BLACK_IP = ['192.168.1.1', '0.0.0.0', '255.255.255.255']
 TCounter = namedtuple('TCounter', ['start_time', 'counter'])
 
 class SignaturePinball(object):
@@ -68,9 +68,9 @@ class SignaturePinball(object):
 
 
 class Pinball(object):
-    def __init__(self, timezone_offset):
+    def __init__(self, timezone):
         self.interval = 10
-        self.timezone_offset = timezone_offset
+        self.timezone = timezone
         self.DIRECTION_IN = 0x00
         self.DIRECTION_OUT = 0x01
         self.event_trigger_times = 50
@@ -135,7 +135,11 @@ class Pinball(object):
         MM, dd, yyyy = int(tstring[0:2]), int(tstring[3:5]), int(tstring[6:10])
         hh, mm, ss = int(tstring[11:13]), int(tstring[14:16]), int(tstring[17:19]) 
         ampm = tstring[20:22]
-        timeoffset = datetime.timedelta(hours=self.timezone_offset)
+        t = arrow.get(yyyy, MM, dd, hh, hh, ss).replace(tzinfo='America/Los_Angeles')
+        t1 = arrow.get(t.year, t.month, t.day, t.hour, t.minute, t.second)
+        t_ = t.to(tz=self.timezone)
+        t2 = arrow.get(t_.year, t_.month, t_.day, t_.hour, t_.minute, t_.second)
+        timeoffset = t2 - t1
         pm_offset = datetime.timedelta(hours=12)
         # in 12 hour system, 12:30 PM should be written as 00:30 PM, denoting the time at noon
         if hh == 12:
@@ -155,22 +159,21 @@ class Pinball(object):
 
         def on_new_packet(index, sip, dip, length):
             on_off = 'even' if index % 2 == 0 else 'odd'
-            if sip.startswith('192.168') and sip not in BLACK_IP and dip not in BLACK_IP:
-                instance_label = (sip, index)
-                direction = self.DIRECTION_OUT
-                if instance_label not in overall_counter[on_off]:
-                    overall_counter[on_off][instance_label] = {}
-                packet_label = (length, direction)
-                overall_counter[on_off][instance_label][packet_label] = \
-                    overall_counter[on_off][instance_label].get(packet_label, 0) + 1
-            if dip.startswith('192.168') and dip not in BLACK_IP and sip not in BLACK_IP:
-                instance_label = (dip, index)
-                direction = self.DIRECTION_IN
-                if instance_label not in overall_counter[on_off]:
-                    overall_counter[on_off][instance_label] = {}
-                packet_label = (length, direction)
-                overall_counter[on_off][instance_label][packet_label] = \
-                    overall_counter[on_off][instance_label].get(packet_label, 0) + 1
+            instance_label = (sip, index)
+            direction = self.DIRECTION_OUT
+            if instance_label not in overall_counter[on_off]:
+                overall_counter[on_off][instance_label] = {}
+            packet_label = (length, direction)
+            overall_counter[on_off][instance_label][packet_label] = \
+                overall_counter[on_off][instance_label].get(packet_label, 0) + 1
+            
+            instance_label = (dip, index)
+            direction = self.DIRECTION_IN
+            if instance_label not in overall_counter[on_off]:
+                overall_counter[on_off][instance_label] = {}
+            packet_label = (length, direction)
+            overall_counter[on_off][instance_label][packet_label] = \
+                overall_counter[on_off][instance_label].get(packet_label, 0) + 1
 
         with PcapReader(pcapfile) as traffic_trace:
             for packet in traffic_trace:
@@ -215,7 +218,7 @@ class Pinball(object):
             event_signature[l] = packet_counter[device_ip][l] / packet_sum
         event_signature = SignaturePinball().from_no_range_signature(event_signature)
         for rl, occurrence in range_lables:
-            p = occurrence_sum / packet_sum
+            p = occurrence / packet_sum
             event_signature.add_range_term(rl, p)
         return event_signature
 
@@ -301,20 +304,19 @@ class Pinball(object):
                         ip_temperary_counter_map[ip] = {}
                     current_time += 1
                 if int(t) == current_time:
-                    if sip.startswith('192.168') and sip not in BLACK_IP and dip not in BLACK_IP:
-                        if sip not in ip_temperary_counter_map:
-                            ip_temperary_counter_map[sip] = {}
-                        ip_temperary_counter_map[sip][(l, self.DIRECTION_OUT)] = \
-                            ip_temperary_counter_map[sip].get((l, self.DIRECTION_OUT), 0) + 1
-                    if dip.startswith('192.168') and sip not in BLACK_IP and dip not in BLACK_IP:
-                        if dip not in ip_temperary_counter_map:
-                            ip_temperary_counter_map[dip] = {}
-                        ip_temperary_counter_map[dip][(l, self.DIRECTION_IN)] = \
-                            ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
+                    if sip not in ip_temperary_counter_map:
+                        ip_temperary_counter_map[sip] = {}
+                    ip_temperary_counter_map[sip][(l, self.DIRECTION_OUT)] = \
+                        ip_temperary_counter_map[sip].get((l, self.DIRECTION_OUT), 0) + 1
+                    
+                    if dip not in ip_temperary_counter_map:
+                        ip_temperary_counter_map[dip] = {}
+                    ip_temperary_counter_map[dip][(l, self.DIRECTION_IN)] = \
+                        ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
         return ip_match_map                    
 
 if __name__ == '__main__':
-    pinball = Pinball(16)
+    pinball = Pinball('Asia/Shanghai')
     # pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/wlan1/st-plug.wlan1.local.pcap'
     # tsfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/timestamps/st-plug-nov-12-2018.timestamps'
     # v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/st-plug/wlan1/st-plug.wlan1.detection.pcap'
