@@ -1,1 +1,3 @@
 pingping/*
+*.pyc
+__pycache__/
