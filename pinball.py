@@ -160,23 +160,24 @@ class Pinball(object):
 
         def on_new_packet(index, sip, dip, length):
             on_off = 'even' if index % 2 == 0 else 'odd'
-            instance_label = (sip, index)
-            direction = self.DIRECTION_OUT
-            if instance_label not in overall_counter[on_off]:
-                overall_counter[on_off][instance_label] = {}
-            packet_label = (length, direction)
-            overall_counter[on_off][instance_label][packet_label] = \
-                overall_counter[on_off][instance_label].get(packet_label, 0) + 1
-            
-            instance_label = (dip, index)
-            direction = self.DIRECTION_IN
-            if instance_label not in overall_counter[on_off]:
-                overall_counter[on_off][instance_label] = {}
-            packet_label = (length, direction)
-            overall_counter[on_off][instance_label][packet_label] = \
-                overall_counter[on_off][instance_label].get(packet_label, 0) + 1
+            if sip.startswith('192.168'):
+                instance_label = (sip, index)
+                direction = self.DIRECTION_OUT
+                if instance_label not in overall_counter[on_off]:
+                    overall_counter[on_off][instance_label] = {}
+                packet_label = (length, direction)
+                overall_counter[on_off][instance_label][packet_label] = \
+                    overall_counter[on_off][instance_label].get(packet_label, 0) + 1
+            if dip.startswith('192.168'):
+                instance_label = (dip, index)
+                direction = self.DIRECTION_IN
+                if instance_label not in overall_counter[on_off]:
+                    overall_counter[on_off][instance_label] = {}
+                packet_label = (length, direction)
+                overall_counter[on_off][instance_label][packet_label] = \
+                    overall_counter[on_off][instance_label].get(packet_label, 0) + 1
 
-        for t, l, sip, dip in PcapReader(pcapfile):
+        for t, l, sip, dip, _sport, _dport, _l4protocol in PcapReader(pcapfile):
             if 0 < t - event_timestamps[index] <= self.interval:
                 on_new_packet(index, sip, dip, l)
             elif t - event_timestamps[index] > self.interval:
@@ -240,13 +241,13 @@ class Pinball(object):
             self._get_signature(packet_counter['even'], packet_occurrence['even'], device_ip)
         off_event_signature = \
             self._get_signature(packet_counter['odd'], packet_occurrence['odd'], device_ip)
-        print(on_event_signature, off_event_signature)
+        # print(on_event_signature, off_event_signature)
         return on_event_signature, off_event_signature
 
-    def validate_signature(self, pcapfile, on_event_signature, off_event_signature, H, KL, OC):
+    def validate_signature(self, pcapfile, on_event_signature, off_event_signature, H, KL, OD):
         ip_queue_map, ip_temperary_counter_map, ip_result_map, ip_match_map = {}, {}, {}, {}
         current_time, match, last_match_time = 0, 0, 0
-        for t, l, sip, dip in PcapReader(pcapfile):
+        for t, l, sip, dip, _sport, _dport, _l4protocol in PcapReader(pcapfile):
             if current_time == 0:
                 # initialize current time
                 current_time = int(t)
@@ -254,16 +255,16 @@ class Pinball(object):
                 for ip, counter in ip_temperary_counter_map.items():
                     if ip not in ip_queue_map:
                         ip_queue_map[ip] = deque()
-                        ip_result_map[ip] = {
-                            'X': [], 
-                            'Y1_1': [], 'Y1_2': [], 'Y1_3': [], 
-                            'Y2_1': [], 'Y2_2': [], 'Y2_3': [],
-                        }
+                        # ip_result_map[ip] = {
+                        #     'X': [], 
+                        #     'Y1_1': [], 'Y1_2': [], 'Y1_3': [], 
+                        #     'Y2_1': [], 'Y2_2': [], 'Y2_3': [],
+                        # }
                     tCounter = TCounter(\
                         start_time=current_time, counter=counter)
                     ip_queue_map[ip].append(tCounter)
                     if len(ip_queue_map[ip]) == self.interval:
-                        ip_result_map[ip]['X'].append(ip_queue_map[ip][0].start_time)
+                        # ip_result_map[ip]['X'].append(ip_queue_map[ip][0].start_time)
                         d1, d2 = {}, {}
                         for c in ip_queue_map[ip]:
                             for packet_label in on_event_signature.packet_keys():
@@ -276,7 +277,7 @@ class Pinball(object):
                         d2 = off_event_signature.get_distribution_from_counter(d2)
                         y1_1, y1_2, y1_3 = self.calculate_all_metrics(on_event_signature, d1)
                         y2_1, y2_2, y2_3 = self.calculate_all_metrics(off_event_signature, d2)
-                        if (y2_1 < H and y2_2 < KL and y2_3 < OC) or (y1_1 < H and y1_2 < KL and y1_3 < OC):
+                        if (y2_1 < H and y2_2 < KL and y2_3 < OD) or (y1_1 < H and y1_2 < KL and y1_3 < OD):
                             mt = int(t)
                             if ip in ip_match_map:
                                 if mt - ip_match_map[ip]['last_match_time'] > self.interval:
@@ -285,46 +286,29 @@ class Pinball(object):
                                 ip_match_map[ip]['last_match_time'] = mt
                             else:
                                 ip_match_map[ip] = {'times': 1, 'last_match_time': mt}
-                        ip_result_map[ip]['Y1_1'].append(y1_1)
-                        ip_result_map[ip]['Y1_2'].append(y1_2)
-                        ip_result_map[ip]['Y1_3'].append(y1_3)
-                        ip_result_map[ip]['Y2_1'].append(y2_1)
-                        ip_result_map[ip]['Y2_2'].append(y2_2)
-                        ip_result_map[ip]['Y2_3'].append(y2_3)
+                                print(ip_match_map[ip]['times'], mt, y1_1, y1_2, y1_3, y2_1, y2_2, y2_3)
+                        # ip_result_map[ip]['Y1_1'].append(y1_1)
+                        # ip_result_map[ip]['Y1_2'].append(y1_2)
+                        # ip_result_map[ip]['Y1_3'].append(y1_3)
+                        # ip_result_map[ip]['Y2_1'].append(y2_1)
+                        # ip_result_map[ip]['Y2_2'].append(y2_2)
+                        # ip_result_map[ip]['Y2_3'].append(y2_3)
                         ip_queue_map[ip].popleft()
                     ip_temperary_counter_map[ip] = {}
                 current_time += 1
             if int(t) == current_time:
-                if sip not in ip_temperary_counter_map:
-                    ip_temperary_counter_map[sip] = {}
-                ip_temperary_counter_map[sip][(l, self.DIRECTION_OUT)] = \
-                    ip_temperary_counter_map[sip].get((l, self.DIRECTION_OUT), 0) + 1
-                
-                if dip not in ip_temperary_counter_map:
-                    ip_temperary_counter_map[dip] = {}
-                ip_temperary_counter_map[dip][(l, self.DIRECTION_IN)] = \
-                    ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
+                if sip.startswith('192.168'):
+                    if sip not in ip_temperary_counter_map:
+                        ip_temperary_counter_map[sip] = {}
+                    ip_temperary_counter_map[sip][(l, self.DIRECTION_OUT)] = \
+                        ip_temperary_counter_map[sip].get((l, self.DIRECTION_OUT), 0) + 1
+                if dip.startswith('192.168'):
+                    if dip not in ip_temperary_counter_map:
+                        ip_temperary_counter_map[dip] = {}
+                    ip_temperary_counter_map[dip][(l, self.DIRECTION_IN)] = \
+                        ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
         return ip_match_map                    
 
 if __name__ == '__main__':
     pinball = Pinball('Asia/Shanghai')
-    # pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/wlan1/st-plug.wlan1.local.pcap'
-    # tsfile = './PingPong/evaluation-datasets/local-phone/standalone/st-plug/timestamps/st-plug-nov-12-2018.timestamps'
-    # v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/st-plug/wlan1/st-plug.wlan1.detection.pcap'
-    pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/wlan1/dlink-plug.wlan1.local.pcap'
-    tsfile = './PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/timestamps/dlink-plug-nov-7-2018.timestamps'
-    v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/dlink-plug/wlan1/dlink-plug.wlan1.detection.pcap'
-    # pcapfile = './PingPong/evaluation-datasets/local-phone/standalone/nest-thermostat/wlan1/nest-thermostat.wlan1.local.pcap'
-    # tsfile = './PingPong/evaluation-datasets/local-phone/standalone/nest-thermostat/timestamps/nest-thermostat-nov-15-2018.timestamps'
-    # v_pcapfile = './PingPong/evaluation-datasets/local-phone/smarthome/nest-thermostat/wlan1/nest-thermostat.wlan1.detection.pcap'
-
-    on_s, off_s = pinball.extract_event_signatures(pcapfile, tsfile, '192.168.1.199')
-    # import pickle
-    # f = open('st-plug.pkl', 'rb')
-    # f = open('d-link-plug.pkl', 'rb')
-    # f = open('nest-thermostat.pkl', 'wb')
-
-    # pickle.dump((on_s, off_s), f)
-    # on_s, off_s = pickle.load(f)
-    # f.close()
-    print(pinball.validate_signature(v_pcapfile, on_s, off_s, 0.25, 2, 0.15))
+    

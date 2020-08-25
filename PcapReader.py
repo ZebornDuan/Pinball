@@ -18,13 +18,15 @@ def PcapReader(filepath):
         if struct.unpack('H', packet_body[12:14])[0] == 8:
             sip = '.'.join([str(i) for i in packet_body[26:30]])
             dip = '.'.join([str(i) for i in packet_body[30:34]])
-            yield timestamp, packet_length, sip, dip
+            l4protocol = ''
+            if packet_body[23] == 6:
+                l4protocol = 'tcp'
+            elif packet_body[23] == 17:
+                l4protocol = 'udp'
+            ip_header_length = (packet_body[14] & 0x0F) * 4
+            sport = struct.unpack('!H', \
+                packet_body[14 + ip_header_length:14 + ip_header_length + 2])[0]
+            dport = struct.unpack('!H', \
+                packet_body[14 + ip_header_length + 2:14 + ip_header_length + 4])[0]
+            yield timestamp, packet_length, sip, dip, sport, dport, l4protocol
         pointer += 16 + packet_length
-
-if __name__ == '__main__':
-    count = 0
-    for t, l, sip, dip in PcapReader('./PingPong/evaluation-datasets/local-phone/standalone/dlink-plug/wlan1/dlink-plug.wlan1.local.pcap'):
-        print(t, l, sip, dip)
-        count += 1
-        if count == 100:
-            break
