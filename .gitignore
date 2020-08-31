@@ -1,3 +1,5 @@
-pingping/*
+pingpong/*
 *.pyc
+*.pkl
 __pycache__/
+MonIoTr/*
