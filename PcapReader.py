@@ -30,3 +30,4 @@ def PcapReader(filepath):
                 packet_body[14 + ip_header_length + 2:14 + ip_header_length + 4])[0]
             yield timestamp, packet_length, sip, dip, sport, dport, l4protocol
         pointer += 16 + packet_length
+    pcap_file.close()
