@@ -1,17 +1,17 @@
 # Pinball: General and Robust Signature Extraction for Smart Home IoT Devices
 ## Setup
-1. Dataset Acquirement
+### Dataset Acquirement
 ./pingpong/   [UCI PingPong Dataset--http://plrg.ics.uci.edu/pingpong/](http://plrg.ics.uci.edu/pingpong/)
 
 ./MonIoTr/    [MonIoTr Dataset--https://github.com/NEU-SNS/intl-iot](https://github.com/NEU-SNS/intl-iot)
 
-2. Running Requirements
+### Running Requirements
 ```
 Python >= 3.6
 arrow >= 0.15 (pip install arrow)
 ```
 
-3. Usage
+### Usage
 ```
 usage: pinball.py [-h] [-r R] [-e] [-d] [-s] [--s1 S1] [--s2 S2] [--tz TZ]
                   [--ip IP] [--ts TS] [--H H] [--KL KL] [--OD OD]
@@ -33,8 +33,8 @@ optional arguments:
   --KL KL     threshold of KL divergence metric, default value: 2
   --OD OD     threshold of occurrence discrepancy metric, default: 0.15
 
-```
 example: python pinball.py -e -s -r ./pingpong/evaluation-datasets/local-phone/standalone/amazon-plug/wlan1/amazon-plug.wlan1.local.pcap --ts ./pingpong/evaluation-datasets/local-phone/standalone/amazon-plug/timestamps/amazon-plug-apr-16-2019.timestamps --tz Asia/Shanghai --ip 192.168.1.189
+```
 
 ## Results on PingPong Dataset
 format: 
