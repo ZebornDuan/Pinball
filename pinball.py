@@ -330,13 +330,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', help='input pcap file path')
     parser.add_argument('-e', action='store_true', help='perform signature extraction')
-    parser.add_argument('-d', action='store_true', help='perfor event decetion')
+    parser.add_argument('-d', action='store_true', help='perform event decetion')
     parser.add_argument('-s', action='store_true', \
         help='store the extracted signatures in pickle format')
     parser.add_argument('--s1', \
-        help='signature(ON) file path (serielization of SignaturePinball object in pickle format)')
+        help='signature(ON) file path (serialization of SignaturePinball object in pickle format)')
     parser.add_argument('--s2', \
-        help='signature(OFF) file path (serielization of SignaturePinball object in pickle format)')
+        help='signature(OFF) file path (serialization of SignaturePinball object in pickle format)')
     parser.add_argument('--tz', default='Asia/Shanghai', help='local timezone')
     parser.add_argument('--ip', help='IP address of the target device')
     parser.add_argument('--ts', help='timestamp file for triggered events (PingPong format)')
