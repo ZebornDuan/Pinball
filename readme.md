@@ -20,7 +20,7 @@ optional arguments:
   -h, --help  show this help message and exit
   -r R        input pcap file path
   -e          perform signature extraction
-  -d          perform event decetion
+  -d          perform event detection
   -s          store the extracted signatures in pickle format
   --s1 S1     signature(ON) file path (serialization of SignaturePinball
               object in pickle format)
@@ -35,6 +35,19 @@ optional arguments:
 
 example: python pinball.py -e -s -r ./pingpong/evaluation-datasets/local-phone/standalone/amazon-plug/wlan1/amazon-plug.wlan1.local.pcap --ts ./pingpong/evaluation-datasets/local-phone/standalone/amazon-plug/timestamps/amazon-plug-apr-16-2019.timestamps --tz Asia/Shanghai --ip 192.168.1.189
 ```
+
+### File Description
+pinball.py -- implementation of Pinball prototype, a tool to extract signatures for events happening on smart home IoT devices;
+
+PcapReader.py -- function to parse the input pcap file;
+
+utils.py -- utilities to extract information from PingPong codes;
+
+MonIoTr.py -- applying Pinball to extract signatures for devices in MonIoTr dataset;
+
+parameters.py -- input parameters for PingPong dataset;
+
+MonIoTr-signatures.md -- results of signature extraction for a subset of MonIoTr dataset;
 
 ## Results on PingPong Dataset
 format: 

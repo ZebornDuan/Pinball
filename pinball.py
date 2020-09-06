@@ -330,7 +330,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', help='input pcap file path')
     parser.add_argument('-e', action='store_true', help='perform signature extraction')
-    parser.add_argument('-d', action='store_true', help='perform event decetion')
+    parser.add_argument('-d', action='store_true', help='perform event detection')
     parser.add_argument('-s', action='store_true', \
         help='store the extracted signatures in pickle format')
     parser.add_argument('--s1', \
