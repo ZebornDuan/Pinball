@@ -1,6 +1,8 @@
+import argparse
 import arrow
 import datetime
 import math
+import pickle
 import scapy.all as scapy
 from collections import deque, namedtuple
 from PcapReader import PcapReader
@@ -186,7 +188,7 @@ class Pinball(object):
                     break
         return overall_counter
 
-    def _get_signature(self, packet_counter, packet_occurrence, device_ip):
+    def get_signature(self, packet_counter, packet_occurrence, device_ip):
         high_frequency_packets, event_signature = set(), {}
         if device_ip not in packet_occurrence:
             return None
@@ -238,9 +240,9 @@ class Pinball(object):
                     packet_occurrence[k][local_ip][packet_label] = packet_occurrence[k][\
                         local_ip].get(packet_label, 0) + 1
         on_event_signature = \
-            self._get_signature(packet_counter['even'], packet_occurrence['even'], device_ip)
+            self.get_signature(packet_counter['even'], packet_occurrence['even'], device_ip)
         off_event_signature = \
-            self._get_signature(packet_counter['odd'], packet_occurrence['odd'], device_ip)
+            self.get_signature(packet_counter['odd'], packet_occurrence['odd'], device_ip)
         # print(on_event_signature, off_event_signature)
         return on_event_signature, off_event_signature
 
@@ -309,6 +311,68 @@ class Pinball(object):
                         ip_temperary_counter_map[dip].get((l, self.DIRECTION_IN), 0) + 1
         return ip_match_map                    
 
-if __name__ == '__main__':
+def run_all(test=False):
     pinball = Pinball('Asia/Shanghai')
-    
+    from parameters import TRAIN_TEST_SETTING
+    BASE = './PingPong'
+    for item in TRAIN_TEST_SETTING:
+        pcapfile, tsfile, ip = BASE + item['input-pcap'], BASE + item['timestamp'], item['ip']
+        H, KL, OD = item['H'], item['KL'], item['OD']
+        on_s, off_s = pinball.extract_event_signatures(pcapfile, tsfile, ip)
+        print(on_s, off_s)
+        if test:
+            for v_trace in item['test-pcap']:
+                v_pcapfile = BASE + v_trace
+                validation = pinball.validate_signature(v_pcapfile, on_s, off_s, H, KL, OD)
+                print(validation)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-r', help='input pcap file path')
+    parser.add_argument('-e', action='store_true', help='perform signature extraction')
+    parser.add_argument('-d', action='store_true', help='perfor event decetion')
+    parser.add_argument('-s', action='store_true', \
+        help='store the extracted signatures in pickle format')
+    parser.add_argument('--s1', \
+        help='signature(ON) file path (serielization of SignaturePinball object in pickle format)')
+    parser.add_argument('--s2', \
+        help='signature(OFF) file path (serielization of SignaturePinball object in pickle format)')
+    parser.add_argument('--tz', default='Asia/Shanghai', help='local timezone')
+    parser.add_argument('--ip', help='IP address of the target device')
+    parser.add_argument('--ts', help='timestamp file for triggered events (PingPong format)')
+    parser.add_argument('--H', type=float, default=0.25, \
+        help='threshold of Hellinger distance metric, default value: 0.25')
+    parser.add_argument('--KL', type=float, default=2, \
+        help='threshold of KL divergence metric, default value: 2')
+    parser.add_argument('--OD', type=float, default=0.15, \
+        help='threshold of occurrence discrepancy metric, default: 0.15')
+
+    args = parser.parse_args()
+    pinball = Pinball(args.tz)
+    if args.e:
+        if not all([args.r, args.ip, args.ts]):
+            print('Not Enough Parameters to Run Signature Extraction, \
+                Require: pcap file, target device IP and timestamp file')
+            exit(-1)
+        on_s, off_s = pinball.extract_event_signatures(args.r, args.ts, args.ip)
+        print(on_s, off_s)
+        if args.s:
+            on_file, off_file = open('on_signature.pkl', 'wb'), open('off_signature.pkl', 'wb')
+            pickle.dump(on_s, on_file)
+            pickle.dump(off_s, off_file)
+            on_file.close()
+            off_file.close()
+            print('extracted signatures store into on_signature.pkl and off_signature.pkl')
+
+    if args.d:
+        if not all([args.r, args.s1, args.s2]):
+            print('Not Enough Parameters to Run Event Detection, \
+                Require: pcap file, on signature and off signature')
+            exit(-1)
+        on_file, off_file = open('on_signature.pkl', 'rb'), open('off_signature.pkl', 'rb')
+        on_s = pickle.load(on_file)
+        off_s = pickle.load(off_file)
+        on_file.close()
+        off_file.close()
+        result = pinball.validate_signature(args.r, on_s, off_s, args.H, args.KL, args.OD)
+        print(result)
