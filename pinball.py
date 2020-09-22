@@ -3,7 +3,7 @@ import arrow
 import datetime
 import math
 import pickle
-import scapy.all as scapy
+import tzlocal
 from collections import deque, namedtuple
 from PcapReader import PcapReader
 
@@ -70,9 +70,9 @@ class SignaturePinball(object):
 
 
 class Pinball(object):
-    def __init__(self, timezone):
+    def __init__(self):
         self.interval = 10
-        self.timezone = timezone
+        self.timezone = str(tzlocal.get_localzone())
         self.DIRECTION_IN = 0x00
         self.DIRECTION_OUT = 0x01
         self.event_trigger_times = 50
@@ -126,9 +126,9 @@ class Pinball(object):
 
     '''
     * This function converts the timestamp strings in PingPong dataset to local timestamps.
+    * the timestamp strings in `.timestamps` files are in the timezone ZONE_ID_LOS_ANGELES
 
     * @Parameter: tstring: timestamp string in .timestamps files in PingPong dataset
-    * @Patameter: zone_offset: timezone offset to ZONE_ID_LOS_ANGELES according to your local time.
 
     * @Return: local timestamp value
     '''
@@ -312,7 +312,7 @@ class Pinball(object):
         return ip_match_map                    
 
 def run_all(test=False):
-    pinball = Pinball('Asia/Shanghai')
+    pinball = Pinball()
     from parameters import TRAIN_TEST_SETTING
     BASE = './PingPong'
     for item in TRAIN_TEST_SETTING:
@@ -337,7 +337,6 @@ if __name__ == '__main__':
         help='signature(ON) file path (serialization of SignaturePinball object in pickle format)')
     parser.add_argument('--s2', \
         help='signature(OFF) file path (serialization of SignaturePinball object in pickle format)')
-    parser.add_argument('--tz', default='Asia/Shanghai', help='local timezone')
     parser.add_argument('--ip', help='IP address of the target device')
     parser.add_argument('--ts', help='timestamp file for triggered events (PingPong format)')
     parser.add_argument('--H', type=float, default=0.25, \
@@ -348,7 +347,7 @@ if __name__ == '__main__':
         help='threshold of occurrence discrepancy metric, default: 0.15')
 
     args = parser.parse_args()
-    pinball = Pinball(args.tz)
+    pinball = Pinball()
     if args.e:
         if not all([args.r, args.ip, args.ts]):
             print('Not Enough Parameters to Run Signature Extraction, \
